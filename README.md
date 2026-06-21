@@ -1,5 +1,7 @@
 # Route Right — multi-venue crypto fee optimization engine
 
+![tests](https://github.com/hudsonRmiller/routeright/actions/workflows/ci.yml/badge.svg)
+
 A real cost model and allocation optimizer for routing a trading firm's monthly
 flow across crypto venues with tiered fees, token discounts, market-maker
 programs, and finite liquidity. This is the engine core, not a UI.
