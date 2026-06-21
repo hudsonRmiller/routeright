@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "routeright"
+version = "0.1.0"
+description = "Multi-venue crypto fee-tier optimization engine"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Hudson Miller" }]
+keywords = [
+    "crypto", "trading", "fees", "fee-optimization", "smart-order-routing",
+    "execution", "tca", "maker-taker", "optimization",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = ["pulp>=2.7"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.urls]
+Homepage = "https://github.com/hudsonRmiller/routeright"
+Source = "https://github.com/hudsonRmiller/routeright"
+Issues = "https://github.com/hudsonRmiller/routeright/issues"
+
+[project.scripts]
+routeright = "routeright.cli:main"
+
+[tool.setuptools]
+packages = ["routeright"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

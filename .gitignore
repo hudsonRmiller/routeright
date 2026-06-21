@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# venvs
+.venv/
+venv/
+env/
+
+# LaTeX build artifacts (keep MODEL.pdf; ignore intermediates)
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

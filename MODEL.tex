@@ -1,0 +1,201 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,booktabs,enumitem}
+\usepackage[hidelinks]{hyperref}
+
+\newcommand{\bps}{\,\text{bps}}
+\newcommand{\usd}{\$}
+\title{Route Right: A Cost Model and Allocation Engine\\ for Multi-Venue Crypto Execution}
+\author{Engine specification, v0.1}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We formalize the per-period (trailing 30-day) cost a trading firm incurs when
+its order flow is split across crypto venues with \emph{status-based tiered}
+fee schedules, native-token discounts, conditional market-maker programs, and
+finite liquidity. The central structural fact is that explicit fees are
+non-convex in volume (tier rates step \emph{down} at thresholds, rewarding
+concentration) while market impact is convex (penalizing it); the optimal route
+balances the two. We give the cost function, prove the relevant monotonicities,
+and reduce the allocation problem to a mixed-integer linear program solved
+exactly at the scale of interest.
+\end{abstract}
+
+\section{Setup and notation}
+Let $\mathcal V$ index venues. Over one rolling 30-day window a firm must
+execute total notional $V>0$ in $N$ executions, so the average trade size is
+$S = V/N$. A fraction $\varphi\in[0,1]$ of notional is executed as
+\emph{taker} (crossing the spread); the complement $1-\varphi$ is
+\emph{maker} (passive). The decision is an allocation
+\[
+x = (x_v)_{v\in\mathcal V}, \qquad x_v\ge 0, \qquad \sum_{v} x_v = V,
+\]
+where $x_v$ is notional routed to venue $v$. We assume the firm preserves its
+order-size distribution across venues, so the executions placed on $v$ number
+$n_v = N\,x_v/V$ and retain average size $S$.
+
+Rates are stored as fractions of notional; $0.0010 = 0.10\% = 10\bps$. A
+negative maker rate denotes a rebate.
+
+\section{Explicit fees}
+\subsection{Tiers as a status}
+Each venue has an ascending tier ladder with thresholds
+$0=\Theta_{v,0}<\Theta_{v,1}<\cdots<\Theta_{v,K_v}$ and per-tier maker/taker
+rates $(m_{v,k},t_{v,k})$. Crucially, the tier is a \emph{status}: the rate of
+the attained tier applies to the firm's \emph{entire} volume on $v$, not
+marginally. The attained tier index is
+\[
+k_v(q_v) = \max\{k : q_v \ge \Theta_{v,k}\},
+\]
+where the qualifying metric $q_v$ depends on the venue's rule: volume
+($q_v=x_v$), assets ($q_v=A_v$), \texttt{either} ($q_v=\max(x_v,A_v)$), or
+\texttt{both} ($q_v=\min(x_v,A_v)$, e.g.\ a venue requiring both volume and a
+token balance).
+
+\subsection{Effective rates}
+Two adjustments turn posted rates into expected effective rates.
+
+\paragraph{Native-token discount.} If the firm pays fees in $v$'s token, a
+discount $\delta_v$ multiplies \emph{positive} fees only (rebates are
+unaffected), at the cost of a carry $c^{\text{tok}}_v$ (bps on routed notional)
+for holding the token. The effective taker rate is
+$\tilde t_{v,k} = t_{v,k}\,(1-\delta_v\,\mathbf 1[\text{pay in token}])$ when
+$t_{v,k}>0$.
+
+\paragraph{Expected maker rate.} A passive order earns its (possibly negative)
+rate only if it \emph{fills}. With fill probability $p_v$, adverse-selection
+loading $a_v$, and a chase cost $\approx$ a half-spread $h_v$ on the unfilled
+remainder,
+\begin{equation}
+\tilde m_{v,k} \;=\; p_v\bigl(m^{\,\delta}_{v,k} + a_v\bigr) \;+\; (1-p_v)\,h_v,
+\label{eq:maker}
+\end{equation}
+where $m^{\,\delta}_{v,k}$ is the token-adjusted maker rate. Equation
+\eqref{eq:maker} is the correction that prevents the engine from treating a
+posted rebate as guaranteed income.
+
+\paragraph{Market-maker program (conditional).} If the firm is eligible and
+$\Theta_{v,k}\ge \Theta^{\text{mm}}_v$, an enhanced pair
+$(m^{\text{mm}}_v,t^{\text{mm}}_v)$ is available in exchange for an obligation
+cost $o_v$ (bps on maker notional). The engine adopts the program on $v$ iff it
+lowers the blended rate.
+
+The blended explicit rate at tier $k$ is
+\begin{equation}
+r_{v,k} \;=\; \varphi\,\tilde t_{v,k} \;+\; (1-\varphi)\,\tilde m_{v,k}
+\;+\; o_v\,\mathbf 1[\text{mm}] \;+\; c^{\text{tok}}_v\,\mathbf 1[\text{token}],
+\label{eq:blend}
+\end{equation}
+and the explicit fee on $v$ is $r_{v,k_v}\,x_v$, a \emph{piecewise-linear,
+non-convex} function of $x_v$ (it drops discontinuously in slope at each
+$\Theta_{v,k}$).
+
+\begin{proposition}[Tier monotonicity]
+For fixed $\varphi$ and parameters, $r_{v,k}$ is non-increasing in $k$.
+Consequently the blended rate is a non-increasing step function of the
+qualifying metric, and average cost per dollar weakly decreases with volume on a
+venue. This concavity is the economic incentive to concentrate flow.
+\end{proposition}
+
+\section{Implicit cost: spread and impact}
+\paragraph{Spread.} Takers cross the spread each trade:
+$\;\text{spread}_v(x_v) = \varphi\,x_v\,h_v$, linear in $x_v$.
+
+\paragraph{Participation impact (convex).} Absorbing a share of a venue's window
+volume $\mathrm{ADV}_v$ moves price by a square-root law, giving an aggregate
+cost
+\begin{equation}
+I^{\text{part}}_v(x_v) \;=\; \kappa\,\sigma\,x_v\sqrt{\frac{x_v}{\mathrm{ADV}_v}}
+\;=\; \kappa\,\sigma\,\mathrm{ADV}_v^{-1/2}\,x_v^{3/2},
+\label{eq:part}
+\end{equation}
+\emph{convex} and increasing. This is the counterweight to tier concavity: it
+makes spreading worthwhile and yields an interior optimum.
+
+\paragraph{Size impact (trade-count effect).} Holding notional fixed, fewer
+(larger) orders dig deeper into the instantaneous book. With instantaneous depth
+$d_v=\beta\,\mathrm{ADV}_v$,
+\begin{equation}
+I^{\text{size}}_v(x_v) \;=\; \kappa_S\,\sigma\,x_v\sqrt{\frac{S}{d_v}},
+\qquad S=\frac{V}{N},
+\label{eq:size}
+\end{equation}
+linear in $x_v$ but scaling as $\sqrt{S}=\sqrt{V/N}$, so for fixed $V$ the cost
+\emph{rises as $N$ falls}. Equations \eqref{eq:part}--\eqref{eq:size} are how the
+engine honors the notional-versus-trade-count distinction: $V$ sets tiers, $S$
+sets per-order impact. Optional flat per-order fees add $n_v\,\phi_v$ (typically
+$0$ for crypto spot).
+
+\section{The allocation problem}
+Total expected monthly cost is
+\begin{equation}
+C(x) = \sum_{v}\Bigl[\, r_{v,k_v(x_v)}\,x_v
+\;+\; \varphi h_v x_v
+\;+\; I^{\text{part}}_v(x_v) + I^{\text{size}}_v(x_v)
+\;+\; n_v\phi_v \Bigr].
+\label{eq:total}
+\end{equation}
+We minimize $C$ over $\sum_v x_v = V$, the counterparty cap
+$x_v \le \rho V$ (share $\rho\in(0,1]$), access masks $x_v=0$ for venues the
+firm's region cannot reach, and optional semi-continuous minimum lots. Because
+the first term is non-convex, this is not a convex program.
+
+\subsection{MILP formulation}
+We disaggregate each $x_v$ over its tier brackets with binaries
+$z_{v,k}\in\{0,1\}$ and segment variables $y_{v,k}\ge 0$:
+\begin{align}
+\sum_k z_{v,k} &= 1, & x_v &= \sum_k y_{v,k},\\
+\Theta_{v,k}\,z_{v,k} \;\le\; y_{v,k} &\;\le\; U_{v,k}\,z_{v,k},
+& U_{v,k}&=\min(\Theta_{v,k+1},\rho V),
+\end{align}
+so exactly one bracket is active and its rate applies to the whole volume; the
+explicit term linearizes to $\sum_k r_{v,k}\,y_{v,k}$. The convex impact
+\eqref{eq:part} is represented by a piecewise-linear outer description with
+increasing slopes $s_{v,j}$ on segments $\delta_{v,j}\in[0,w_{v,j}]$,
+$x_v=\sum_j\delta_{v,j}$; convexity makes the LP fill low-slope segments first,
+so no extra binaries are needed and the approximation is exact at the
+breakpoints. The remaining terms are linear in $x_v$. The result is a MILP with
+$\sum_v K_v$ binaries.
+
+\begin{remark}[Scale and exactness]
+At the scale of interest ($|\mathcal V|\!\sim\!6\text{--}15$ venues, $K_v\!\sim\!6\text{--}10$
+tiers) the MILP has on the order of $10^2$ binaries and CBC solves it to
+proven optimality in milliseconds. Any single-venue allocation is feasible, so
+the optimum is provably no worse than the naive ``best single venue''
+baseline; the engine's edge is exactly the gap.
+\end{remark}
+
+\section{Rolling-tier sprint}
+Tiers track \emph{trailing} 30-day volume, so mid-window a firm can push extra
+volume now to re-rate remaining flow. With current trailing volume $V^{\text{now}}_v$
+at day $\tau$ of a 30-day window, run-rate $\mu_v=V^{\text{now}}_v/\tau$, and
+remaining flow $R_v=\mu_v(30-\tau)$, crossing the next threshold
+$\Theta'$ (rate $r\to r'$) is worthwhile iff
+\begin{equation}
+\underbrace{(r-r')\,R_v}_{\text{saving on remaining flow}}
+\;>\;
+\underbrace{r\,\bigl(\Theta'-V^{\text{now}}_v\bigr)}_{\text{sprint cost}} .
+\end{equation}
+The engine reports the breakeven and net benefit per venue.
+
+\section{What is data versus structure}
+The \emph{structure}---tier non-convexity, convex impact, the MILP, the
+sprint breakeven---is the engine's defensible content. The following are
+\textbf{parameters to be calibrated} from live feeds and the firm's own fills,
+and the engine's accuracy is bounded by their quality:
+\begin{itemize}[nosep]
+\item tier thresholds and rates (live per venue; top tiers and MM-program terms
+are often negotiated/NDA);
+\item half-spreads $h_v$, window liquidity $\mathrm{ADV}_v$, depth fraction
+$\beta$, and impact coefficients $\kappa,\kappa_S$ (from order-book and TCA
+data);
+\item maker fill probabilities $p_v$ and adverse-selection loadings $a_v$ (from
+the firm's realized passive fills).
+\end{itemize}
+Shipping the engine with indicative defaults is fine for illustration; shipping
+it against a customer's real fills is what makes a route trustworthy.
+
+\end{document}
